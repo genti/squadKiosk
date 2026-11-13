@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="it.squadmap.kiosk"
+    android:versionCode="2"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="26" />
+
+    <!-- testOnly: lets `adb shell dpm remove-active-admin` drop Device Owner without a factory reset -->
+    <application
+        android:label="Kiosk"
+        android:testOnly="true"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+
+        <receiver
+            android:name=".AdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name=".KioskActivity"
+            android:launchMode="singleTask"
+            android:exported="true"
+            android:lockTaskMode="if_whitelisted">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".ExitService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/exit_service" />
+        </service>
+    </application>
+</manifest>
