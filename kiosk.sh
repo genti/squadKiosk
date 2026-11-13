@@ -216,7 +216,7 @@ bundletool() {
 
 cmd_install_app() {
   local src=${1:-} tmp; tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
+  trap 'rm -rf "${tmp:-}"; trap - RETURN' RETURN
   if [ -z "$src" ]; then
     [ -n "$REPO" ] || die "indica un file (.apk/.apk.xz/.aab) oppure imposta KIOSK_REPO=utente/repo"
     local ver=${KIOSK_VERSION:-}
