@@ -1,0 +1,11 @@
+build/
+tools/*.jar
+*.apk
+*.aab
+*.idsig
+*.jks
+*.keystore
+.kiosk-state/
+.kiosk-build.keystore
+.kiosk-build.pass
+*.xz

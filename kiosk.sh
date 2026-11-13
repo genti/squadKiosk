@@ -4,12 +4,13 @@
 #   ./kiosk.sh                  guided: checks, disclaimer, setup, install squadMap
 #   ./kiosk.sh check            verify phone and PC only (changes nothing)
 #   ./kiosk.sh setup            debloat, fullscreen, kiosk launcher as Device Owner
-#   ./kiosk.sh install-app [f]  install squadMap from f (.apk or .aab), default: latest GitHub Release
+#   ./kiosk.sh install-app [f]  install squadMap from f (.apk, .apk.xz or .aab); default: GitHub Release (latest, or KIOSK_VERSION=vX.Y.Z)
 #   ./kiosk.sh status           show kiosk state of the phone
 #   ./kiosk.sh restore          leave kiosk and undo what setup changed (alias: exit)
 #
 # Several phones on adb: a numbered list is shown (or set ANDROID_SERIAL).
-# Env: KIOSK_REPO=user/repo (Release source), KIOSK_ACCEPT=yes (skip prompts),
+# Env: KIOSK_REPO=user/repo (Release source), KIOSK_VERSION=vX.Y.Z (default: latest),
+#      KIOSK_ACCEPT=yes (skip prompts),
 #      .aab only, optional signing: KS_FILE KS_PASS KS_ALIAS (else bundletool debug key).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,7 +19,7 @@ KIOSK=it.squadmap.kiosk
 ADMIN=$KIOSK/.AdminReceiver
 EXIT_SERVICE=$KIOSK/$KIOSK.ExitService
 TARGET=it.davidegentilucci.squadmap
-REPO=${KIOSK_REPO:-CHANGE_ME/squadmap-kiosk}   # GitHub "user/repo" hosting the Releases
+REPO=${KIOSK_REPO:-genti/squadKiosk}   # GitHub "user/repo" hosting the Releases
 BUNDLETOOL_VERSION=1.18.1
 BUNDLETOOL=tools/bundletool-all-$BUNDLETOOL_VERSION.jar
 STATE_DIR=.kiosk-state
@@ -141,13 +142,19 @@ TXT
   [ "$a" = ACCETTO ] || die "non accettato, nessuna modifica fatta"
 }
 
-# Launcher APK: build from source if the Android SDK is there, else prebuilt, else Release.
+# Release asset URL: latest, or a pinned tag via KIOSK_VERSION.
+release_url() {
+  if [ -n "${KIOSK_VERSION:-}" ]; then echo "https://github.com/$REPO/releases/download/$KIOSK_VERSION/$1"
+  else echo "https://github.com/$REPO/releases/latest/download/$1"; fi
+}
+
+app_version() { sh_ dumpsys package "$TARGET" | sed -n 's/^ *versionName=//p' | head -1; }
+
+# Launcher APK: downloaded from the Release (kiosk.apk), or a local kiosk.apk next to this script.
 get_launcher() {
-  if [ -d "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" ] && ./build.sh >/dev/null 2>&1; then return; fi
   [ -f kiosk.apk ] && return
-  if [[ $REPO != CHANGE_ME/* ]] && command -v curl >/dev/null \
-     && curl -fL -o kiosk.apk "https://github.com/$REPO/releases/latest/download/kiosk.apk"; then return; fi
-  die "launcher non disponibile: installa l'Android SDK (build.sh) o metti kiosk.apk in questa cartella"
+  curl -fL -o kiosk.apk "$(release_url kiosk.apk)" \
+    || die "download di kiosk.apk fallito (la release deve contenere kiosk.apk)"
 }
 
 cmd_setup() {
@@ -211,14 +218,21 @@ cmd_install_app() {
   local src=${1:-} tmp; tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
   if [ -z "$src" ]; then
-    [[ $REPO != CHANGE_ME/* ]] || die "indica un file (.apk/.aab) oppure imposta KIOSK_REPO=utente/repo"
-    say "Scarico l'ultima release di squadMap da $REPO"
-    curl -fL -o "$tmp/app.apk" "https://github.com/$REPO/releases/latest/download/squadmap.apk" \
-      || die "download fallito (la release deve contenere squadmap.apk)"
-    src=$tmp/app.apk
+    [ -n "$REPO" ] || die "indica un file (.apk/.apk.xz/.aab) oppure imposta KIOSK_REPO=utente/repo"
+    local ver=${KIOSK_VERSION:-}
+    say "Scarico squadMap ${ver:-(ultima release)} da $REPO"
+    curl -fL -o "$tmp/squadmap.apk.xz" "$(release_url squadmap.apk.xz)" \
+      || die "download fallito (la release deve contenere squadmap.apk.xz)"
+    src=$tmp/squadmap.apk.xz
   fi
   [ -f "$src" ] || die "file non trovato: $src"
   need_device
+  if [[ $src == *.xz ]]; then
+    command -v xz >/dev/null || die "xz necessario per scompattare $src"
+    say "Scompatto $src"
+    xz -dc "$src" > "$tmp/app.apk"
+    src=$tmp/app.apk
+  fi
   if [[ $src == *.aab ]]; then
     say "AAB -> APK universale"
     local sign=()
@@ -229,9 +243,10 @@ cmd_install_app() {
     unzip -q -o "$tmp/app.apks" universal.apk -d "$tmp"
     src=$tmp/universal.apk
   fi
-  say "Installo squadMap"
+  say "Installo squadMap (installata: $(app_version))"
   adb install -r "$src" || die "install fallito. Con INSTALL_FAILED_UPDATE_INCOMPATIBLE la firma è cambiata: adb uninstall $TARGET e riprova"
   sleep 4
+  echo "  versione installata: $(app_version)"
   sh_ dumpsys activity activities | grep -m1 mResumedActivity || true
 }
 
@@ -241,6 +256,7 @@ cmd_status() {
   if is_owner; then echo "  Device Owner: sì (kiosk attivo)"; else echo "  Device Owner: no"; fi
   sh_ dumpsys activity activities | grep -m1 'mLockTaskModeState' | sed 's/^ */  /' || true
   sh_ dumpsys activity activities | grep -m1 mResumedActivity | sed 's/^ */  /' || true
+  echo "  squadMap versione: $(app_version)"
   echo "  app disabilitate: $(sh_ pm list packages -d | wc -l)"
   echo "  policy_control: $(sh_ settings get global policy_control)"
 }
